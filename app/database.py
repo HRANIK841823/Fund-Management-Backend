@@ -1,37 +1,53 @@
+import os
 from typing import Iterator
 
-from sqlalchemy import create_engine, event
+from dotenv import load_dotenv
+from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import settings
+
+load_dotenv()
 
 
 class Base(DeclarativeBase):
     pass
 
 
-def make_engine(url: str) -> Engine:
-    """Create an engine. For SQLite, enforce foreign keys on every connection."""
-    is_sqlite = url.startswith("sqlite")
-    engine = create_engine(
-        url,
-        connect_args={"check_same_thread": False} if is_sqlite else {},
+# Supabase PostgreSQL configuration
+USER = os.getenv("user")
+PASSWORD = os.getenv("password")
+HOST = os.getenv("host")
+PORT = os.getenv("port")
+DBNAME = os.getenv("dbname")
+
+if not all([USER, PASSWORD, HOST, PORT, DBNAME]):
+    raise ValueError(
+        "Supabase database configuration is incomplete. "
+        "Check user, password, host, port, and dbname in .env"
     )
-    if is_sqlite:
 
-        @event.listens_for(engine, "connect")
-        def _set_sqlite_pragmas(dbapi_connection, _connection_record):
-            cursor = dbapi_connection.cursor()
-            cursor.execute("PRAGMA foreign_keys=ON")  # SQLite ignores FKs by default
-            cursor.execute("PRAGMA busy_timeout=5000")
-            cursor.close()
-
-    return engine
+DATABASE_URL = (
+    f"postgresql+psycopg2://{USER}:{PASSWORD}@{HOST}:{PORT}/{DBNAME}?sslmode=require"
+)
 
 
-engine = make_engine(settings.database_url)
-SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+def make_engine(url: str) -> Engine:
+    """Create a PostgreSQL engine."""
+    return create_engine(
+        url,
+        pool_pre_ping=True,
+    )
+
+
+engine = make_engine(DATABASE_URL)
+
+SessionLocal = sessionmaker(
+    bind=engine,
+    autoflush=False,
+    expire_on_commit=False,
+)
 
 
 def get_db() -> Iterator[Session]:
@@ -45,7 +61,7 @@ def get_db() -> Iterator[Session]:
 
 def seed_defaults(db: Session) -> None:
     """Create the single fund-settings row if it doesn't exist yet."""
-    from app.models import FundSettings  # imported here to avoid a circular import
+    from app.models import FundSettings
 
     if db.get(FundSettings, 1) is None:
         db.add(
@@ -59,8 +75,17 @@ def seed_defaults(db: Session) -> None:
 
 def init_db() -> None:
     """Create all tables (if missing) and seed default settings."""
-    from app import models  # noqa: F401  (registers the models on Base)
+    from app import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
         seed_defaults(db)
+
+
+# Test database connection
+try:
+    with engine.connect():
+        print("Supabase PostgreSQL connection successful!")
+except Exception as e:
+    print(f"Failed to connect to Supabase PostgreSQL: {e}")
+    raise
