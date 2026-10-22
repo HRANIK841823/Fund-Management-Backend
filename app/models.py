@@ -105,14 +105,15 @@ class Payment(Base):
         CheckConstraint("amount > 0", name="ck_payments_amount_positive"),
         # One active (pending or approved) payment per member per month/year.
         # Rejected rows are excluded, so a member can resubmit after a rejection.
-        Index(
-            "uq_payments_one_active_per_member_month",
+    Index(
+           "uq_payments_one_active_per_member_month",
             "user_id",
             "month",
             "year",
-            unique=True,
+             unique=True,
             sqlite_where=text("status IN ('pending', 'approved')"),
-        ),
+            postgresql_where=text("status IN ('pending', 'approved')"),
+    ),
         Index("ix_payments_year_month", "year", "month"),
         Index("ix_payments_status", "status"),
     )
